@@ -4,8 +4,15 @@ from discord import app_commands
 import sqlite3
 from datetime import datetime
 
-# SEU TOKEN
-TOKEN = 
+# 🔐 TOKEN SEGURO (variável ambiente)
+import os
+TOKEN = os.getenv('DISCORD_TOKEN')
+
+if not TOKEN:
+    print("❌ ERRO: Token não encontrado!")
+    print("❌ Configure a variável DISCORD_TOKEN no Render!")
+    exit(1)
+
 # IDs DOS CARGOS
 CARGOS_STAFF = {
     'CEO': 1365557796879466566,
@@ -833,3 +840,4 @@ if __name__ == "__main__":
     print(f"📋 {len(CARGOS_STAFF)} cargos configurados")
     print("🎯 Funcionalidades: Criar → Resolver → Fechar tickets!")
     bot.run(TOKEN)
+````
