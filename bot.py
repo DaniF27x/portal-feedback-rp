@@ -861,5 +861,4 @@ if __name__ == "__main__":
     threading.Thread(target=run_server, daemon=True).start()
     print(f"🌐 Servidor web iniciado na porta {os.environ.get('PORT', 8000)}")
     
-    bot.run(TOKEN)
-````
+    bot.run(TOKEN) 
