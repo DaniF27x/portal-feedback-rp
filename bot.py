@@ -839,5 +839,4 @@ if __name__ == "__main__":
     print("🔧 Sistema com logs detalhados e controle de tickets!")
     print(f"📋 {len(CARGOS_STAFF)} cargos configurados")
     print("🎯 Funcionalidades: Criar → Resolver → Fechar tickets!")
-    bot.run(TOKEN)
-````
+    bot.run(TOKEN) 
