@@ -839,4 +839,27 @@ if __name__ == "__main__":
     print("🔧 Sistema com logs detalhados e controle de tickets!")
     print(f"📋 {len(CARGOS_STAFF)} cargos configurados")
     print("🎯 Funcionalidades: Criar → Resolver → Fechar tickets!")
-    bot.run(TOKEN) 
+    
+    # Servidor web simples para Render
+    import threading
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import os
+    
+    class HealthHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'Bot Discord Online!')
+    
+    def run_server():
+        port = int(os.environ.get('PORT', 8000))
+        server = HTTPServer(('0.0.0.0', port), HealthHandler)
+        server.serve_forever()
+    
+    # Iniciar servidor em thread separada
+    threading.Thread(target=run_server, daemon=True).start()
+    print(f"🌐 Servidor web iniciado na porta {os.environ.get('PORT', 8000)}")
+    
+    bot.run(TOKEN)
+````
