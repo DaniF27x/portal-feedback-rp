@@ -1,0 +1,2578 @@
+import React, { useState, useEffect } from 'react';
+import { BarChart3, Users, FileText, TrendingUp, Bell, Settings, Home, CheckCircle, XCircle, Clock, Eye, Plus, Filter } from 'lucide-react';
+
+// Simulated Firebase for shared data
+const syncData = {
+  sync: (collection, data) => {
+    const stored = JSON.parse(localStorage.getItem(`sync_${collection}`) || 'null');
+    if (JSON.stringify(stored) !== JSON.stringify(data)) {
+      localStorage.setItem(`sync_${collection}`, JSON.stringify(data));
+      window.dispatchEvent(new CustomEvent('data_change', { detail: { collection, data } }));
+    }
+  },
+  listen: (collection, callback) => {
+    const handler = (event) => {
+      if (event.detail.collection === collection) {
+        callback(event.detail.data);
+      }
+    };
+    window.addEventListener('data_change', handler);
+    
+    // Load initial
+    const stored = JSON.parse(localStorage.getItem(`sync_${collection}`) || 'null');
+    if (stored) callback(stored);
+    
+    return () => window.removeEventListener('data_change', handler);
+  }
+};
+
+export default function MetaXSystem() {
+  const { useStoredState } = hatch;
+  const [currentUser, setCurrentUser] = useStoredState('currentUser', null);
+  const [activeTab, setActiveTab] = useStoredState('activeTab', 'dashboard');
+  const [showLogin, setShowLogin] = useState(!currentUser);
+  const [registeredUsers, setRegisteredUsers] = useStoredState('registeredUsers', [
+    {
+      id: 'dir001',
+      name: 'Daniel',
+      username: 'daniel',
+      password: '5609984',
+      role: 'Diretoria',
+      createdBy: 'Sistema',
+      createdAt: new Date().toLocaleString('pt-BR'),
+      needsPassword: false
+    }
+  ]);
+  
+  // All form states at component level
+  const [selectedUser, setSelectedUser] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPasswordSetup, setShowPasswordSetup] = useState(false);
+  const [setupUserId, setSetupUserId] = useState(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [newRequest, setNewRequest] = useState({
+    type: '',
+    name: '',
+    description: '',
+    priority: 'média',
+    requestedAmount: ''
+  });
+  const [showExpenseProofForm, setShowExpenseProofForm] = useState(false);
+  const [expenseProof, setExpenseProof] = useState({ requestId: null, actualAmount: '', proofs: '' });
+  const [showProofModal, setShowProofModal] = useState(false);
+  const [selectedExpenseId, setSelectedExpenseId] = useState(null);
+  const [showRequestDetails, setShowRequestDetails] = useState(false);
+  const [selectedRequestId, setSelectedRequestId] = useState(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showUserForm, setShowUserForm] = useState(false);
+  const [newUser, setNewUser] = useState({ name: '', username: '', role: 'Adm Staff' });
+  
+  // Financial and metrics states
+  const [showFinancialForm, setShowFinancialForm] = useState(false);
+  const [newTransaction, setNewTransaction] = useState({
+    type: 'receita',
+    amount: '',
+    description: '',
+    date: new Date().toISOString().split('T')[0]
+  });
+  const [showMetricsForm, setShowMetricsForm] = useState(false);
+  const [showAuditForm, setShowAuditForm] = useState(false);
+  const [auditUpdate, setAuditUpdate] = useState({ score: '', note: '' });
+  
+  // Financial data
+  const [transactions, setTransactions] = useStoredState('transactions', []);
+  const [auditHistory, setAuditHistory] = useStoredState('auditHistory', []);
+  
+  const [pendingApprovals, setPendingApprovals] = useStoredState('pendingApprovals', [
+    {
+      id: 1,
+      type: 'Usuário',
+      name: 'ANGELO FLAVIO SILVA GOMES',
+      status: 'Solicitada',
+      lastUpdate: '06/08/2025 18:15',
+      description: 'Solicitação de auditoria para organização de transporte',
+      priority: 'alta'
+    },
+    {
+      id: 2, 
+      type: 'Relatório',
+      name: 'Análise Mensal Marketing',
+      status: 'Em análise',
+      lastUpdate: '06/08/2025 14:30',
+      description: 'Relatório de performance das campanhas de julho',
+      priority: 'média'
+    }
+  ]);
+
+  const [cityMetrics, setCityMetrics] = useStoredState('cityMetrics', {
+    marketing: { status: 'Em dia', progress: 85, color: 'green' },
+    design: { status: 'Atrasado', progress: 60, color: 'orange' },
+    socialMedia: { status: 'Excelente', progress: 95, color: 'green' },
+    profit: { value: 'R$ 2.4M', growth: '+12%', color: 'green' },
+    auditScore: { value: '94', max: '100', color: 'green' }
+  });
+
+  // Roles e permissões
+  const roles = {
+    'CEO': { canApprove: false, canCreate: true, canExecute: false, level: 4 },
+    'Diretoria': { canApprove: true, canCreate: true, canExecute: false, level: 3 },
+    'Alta Cúpula': { canApprove: true, canCreate: false, canExecute: true, level: 2 },
+    'Adm Staff': { canApprove: false, canCreate: false, canExecute: true, level: 1 }
+  };
+
+  const canUserApprove = () => currentUser && roles[currentUser.role]?.canApprove;
+  const canUserCreate = () => currentUser && roles[currentUser.role]?.canCreate;
+  const canManageUsers = () => currentUser && ['Diretoria', 'CEO'].includes(currentUser.role);
+  const canManageFinances = () => currentUser && ['CEO', 'Diretoria'].includes(currentUser.role);
+  const canRegisterCEO = () => currentUser && currentUser.role === 'Diretoria';
+  
+  // 🔥 AUTO-SYNC DATA
+  useEffect(() => {
+    syncData.sync('users', registeredUsers);
+    syncData.sync('transactions', transactions);
+    syncData.sync('approvals', pendingApprovals);
+  }, [registeredUsers, transactions, pendingApprovals]);
+  
+  useEffect(() => {
+    const cleanup = [
+      syncData.listen('users', setRegisteredUsers),
+      syncData.listen('transactions', setTransactions),
+      syncData.listen('approvals', setPendingApprovals)
+    ];
+    return () => cleanup.forEach(fn => fn());
+  }, []);
+  
+  // 📱 PWA SETUP
+  useEffect(() => {
+    // Register service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then(registration => console.log('SW registrado:', registration))
+        .catch(error => console.log('SW erro:', error));
+    }
+    
+    // Add to home screen prompt
+    let deferredPrompt;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      
+      // Show install button after 3 seconds
+      setTimeout(() => {
+        const installDiv = document.createElement('div');
+        installDiv.innerHTML = `
+          <div style="position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#3b82f6;color:white;padding:12px 20px;border-radius:8px;z-index:9999;font-family:system-ui;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+            📱 Instalar MetaX como app? 
+            <button onclick="this.parentElement.parentElement.remove();window.installMetaX()" style="background:white;color:#3b82f6;border:none;padding:4px 8px;border-radius:4px;margin-left:10px;cursor:pointer;">Instalar</button>
+            <button onclick="this.parentElement.parentElement.remove()" style="background:transparent;color:white;border:1px solid white;padding:4px 8px;border-radius:4px;margin-left:5px;cursor:pointer;">Agora não</button>
+          </div>
+        `;
+        document.body.appendChild(installDiv);
+        
+        window.installMetaX = () => {
+          if (deferredPrompt) {
+            deferredPrompt.prompt();
+            deferredPrompt.userChoice.then((choiceResult) => {
+              console.log('Install:', choiceResult.outcome);
+              deferredPrompt = null;
+            });
+          }
+        };
+      }, 3000);
+    });
+  }, []);
+  
+  // Financial calculation functions
+  const calculateMonthlyProfit = () => {
+    const currentMonth = new Date().getMonth();
+    const currentYear = new Date().getFullYear();
+    
+    const monthlyTransactions = transactions.filter(t => {
+      const transactionDate = new Date(t.date);
+      return transactionDate.getMonth() === currentMonth && 
+             transactionDate.getFullYear() === currentYear;
+    });
+    
+    const receitas = monthlyTransactions
+      .filter(t => t.type === 'receita')
+      .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+      
+    const despesas = monthlyTransactions
+      .filter(t => t.type === 'despesa')
+      .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+      
+    const profit = receitas - despesas;
+    
+    // Calculate growth vs previous month
+    const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+    const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+    
+    const prevMonthTransactions = transactions.filter(t => {
+      const transactionDate = new Date(t.date);
+      return transactionDate.getMonth() === prevMonth && 
+             transactionDate.getFullYear() === prevYear;
+    });
+    
+    const prevReceitas = prevMonthTransactions
+      .filter(t => t.type === 'receita')
+      .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+      
+    const prevDespesas = prevMonthTransactions
+      .filter(t => t.type === 'despesa')
+      .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+      
+    const prevProfit = prevReceitas - prevDespesas;
+    
+    const growth = prevProfit ? ((profit - prevProfit) / Math.abs(prevProfit)) * 100 : 0;
+    
+    return {
+      value: `R$ ${(profit / 1000000).toFixed(1)}M`,
+      growth: growth >= 0 ? `+${growth.toFixed(1)}%` : `${growth.toFixed(1)}%`,
+      color: growth >= 0 ? 'green' : 'red',
+      receitas,
+      despesas,
+      profit
+    };
+  };
+  
+  const getCurrentAuditScore = () => {
+    if (auditHistory.length === 0) return { value: '0', max: '100', color: 'gray' };
+    
+    const latest = auditHistory[auditHistory.length - 1];
+    const score = parseInt(latest.score);
+    
+    return {
+      value: latest.score,
+      max: '100',
+      color: score >= 90 ? 'green' : score >= 70 ? 'orange' : 'red'
+    };
+  };
+  
+  // Financial management functions
+  const addTransaction = (transactionData) => {
+    const newTransaction = {
+      id: Date.now(),
+      ...transactionData,
+      createdBy: currentUser.name,
+      createdAt: new Date().toLocaleString('pt-BR')
+    };
+    setTransactions(prev => [...prev, newTransaction]);
+  };
+  
+  const addAuditScore = (auditData) => {
+    const newAudit = {
+      id: Date.now(),
+      ...auditData,
+      createdBy: currentUser.name,
+      createdAt: new Date().toLocaleString('pt-BR')
+    };
+    setAuditHistory(prev => [...prev, newAudit]);
+  };
+
+  // User management functions
+  const registerNewUser = (userData) => {
+    const newUser = {
+      id: Date.now(),
+      ...userData,
+      password: null,
+      createdBy: currentUser.name,
+      createdAt: new Date().toLocaleString('pt-BR'),
+      needsPassword: true
+    };
+    setRegisteredUsers(prev => [...prev, newUser]);
+  };
+
+  const updateUserPassword = (userId, password) => {
+    setRegisteredUsers(prev => 
+      prev.map(user => 
+        user.id === userId 
+          ? { ...user, password, needsPassword: false }
+          : user
+      )
+    );
+  };
+
+  // Login/Logout functions
+  const handleLogin = (userData) => {
+    setCurrentUser(userData);
+    setShowLogin(false);
+    resetLoginForm();
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setShowLogin(true);
+    setActiveTab('dashboard');
+    resetLoginForm();
+  };
+  
+  const resetLoginForm = () => {
+    setSelectedUser('');
+    setPassword('');
+    setShowPasswordSetup(false);
+    setSetupUserId(null);
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowForm(false);
+    setNewRequest({ type: '', name: '', description: '', priority: 'média', requestedAmount: '' });
+    setShowUserForm(false);
+    setNewUser({ name: '', username: '', role: 'Adm Staff' });
+    setShowFinancialForm(false);
+    setNewTransaction({ type: 'receita', amount: '', description: '', date: new Date().toISOString().split('T')[0] });
+    setShowMetricsForm(false);
+    setShowAuditForm(false);
+    setAuditUpdate({ score: '', note: '' });
+    setShowExpenseProofForm(false);
+    setExpenseProof({ requestId: null, actualAmount: '', proofs: '' });
+  };
+
+  // Helper functions
+  const getStatusColor = (status) => {
+    const colors = {
+      'Solicitada': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+      'Em análise': 'bg-blue-100 text-blue-800 border-blue-200',
+      'Pendente': 'bg-orange-100 text-orange-800 border-orange-200',
+      'Finalizada': 'bg-green-100 text-green-800 border-green-200', 
+      'Pendente': 'bg-orange-100 text-orange-800 border-orange-200',
+      'Aprovada': 'bg-green-100 text-green-800 border-green-200',
+      'Rejeitada': 'bg-red-100 text-red-800 border-red-200'
+    };
+    return colors[status] || 'bg-gray-100 text-gray-800 border-gray-200';
+  };
+
+  const getPriorityDot = (priority) => {
+    const colors = {
+      'alta': 'bg-red-500',
+      'média': 'bg-yellow-500', 
+      'baixa': 'bg-green-500'
+    };
+    return colors[priority] || 'bg-gray-500';
+  };
+
+  // Approval functions
+  const handleApproval = (itemId, action) => {
+    setPendingApprovals(prev => 
+      prev.map(item => 
+        item.id === itemId 
+          ? { 
+              ...item, 
+              status: action === 'approve' ? (item.type === 'Despesa' ? 'Pendente' : 'Aprovada') : 'Rejeitada',
+              lastUpdate: new Date().toLocaleString('pt-BR'),
+              approver: currentUser.name
+            }
+          : item
+      )
+    );
+  };
+
+  // Add expense proof and finalize
+  const finalizeExpense = (requestId, actualAmount, proofs) => {
+    const request = pendingApprovals.find(r => r.id === requestId);
+    if (request && request.type === 'Despesa') {
+      // Auto-launch expense transaction
+      const expenseTransaction = {
+        id: Date.now(),
+        type: 'despesa',
+        amount: actualAmount,
+        description: `${request.name} - Chamado #${request.id}`,
+        requestId: request.id,
+        date: new Date().toISOString().split('T')[0],
+        createdBy: currentUser.name,
+        createdAt: new Date().toLocaleString('pt-BR')
+      };
+      setTransactions(prev => [...prev, expenseTransaction]);
+      
+      // Mark request as completed
+      setPendingApprovals(prev => 
+        prev.map(item => 
+          item.id === requestId 
+            ? { 
+                ...item, 
+                status: 'Finalizada',
+                actualAmount: actualAmount,
+                proofs: proofs,
+                lastUpdate: new Date().toLocaleString('pt-BR'),
+                finalizedBy: currentUser.name
+              }
+            : item
+        )
+      );
+    }
+  };
+
+  // Create new request
+  const createNewRequest = (requestData) => {
+    const newRequest = {
+      id: Date.now(),
+      ...requestData,
+      status: 'Solicitada',
+      lastUpdate: new Date().toLocaleString('pt-BR'),
+      priority: requestData.priority || 'média',
+      createdBy: currentUser?.name || 'Sistema',
+      createdAt: new Date().toLocaleString('pt-BR')
+    };
+    setPendingApprovals(prev => [...prev, newRequest]);
+  };
+
+  // Login Screen
+  const renderLogin = () => {
+    const handleSubmit = (e) => {
+      e.preventDefault();
+      
+      // Login de usuário existente
+      const user = registeredUsers.find(u => u.username === selectedUser);
+      if (!user) {
+        alert('Usuário não encontrado');
+        return;
+      }
+      
+      // Primeiro acesso - configurar senha
+      if (user.needsPassword) {
+        setSetupUserId(user.id);
+        setShowPasswordSetup(true);
+        return;
+      }
+      
+      // Login normal
+      if (user.password === password) {
+        handleLogin({
+          id: user.id,
+          name: user.name,
+          username: user.username,
+          role: user.role,
+          avatar: user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+        });
+      } else {
+        alert('Senha incorreta');
+      }
+    };
+    
+    const handlePasswordSetup = (newPassword) => {
+      const user = registeredUsers.find(u => u.id === setupUserId);
+      if (user) {
+        updateUserPassword(setupUserId, newPassword);
+        handleLogin({
+          id: user.id,
+          name: user.name,
+          role: user.role,
+          avatar: user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+        });
+      }
+      setShowPasswordSetup(false);
+      setSetupUserId(null);
+    };
+    
+    // Password Setup Screen
+    if (showPasswordSetup) {
+      const handleSetup = (e) => {
+        e.preventDefault();
+        if (newPassword && newPassword === confirmPassword && newPassword.length >= 4) {
+          handlePasswordSetup(newPassword);
+        } else {
+          alert('Senhas não conferem ou muito curtas (mín. 4 caracteres)');
+        }
+      };
+      
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-2xl">
+            <div className="text-center mb-8">
+              <img src="uDVQpOngllnzN4bKKpxkJ" alt="MetaX" className="w-16 h-16 mx-auto mb-4" />
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">Definir Senha</h1>
+              <p className="text-gray-600">Primeiro acesso - crie sua senha</p>
+            </div>
+            
+            <form onSubmit={handleSetup} className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nova Senha</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Mínimo 4 caracteres"
+                  required
+                  minLength="4"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Confirmar Senha</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Repita a senha"
+                  required
+                  minLength="4"
+                />
+              </div>
+              
+              <button
+                type="submit"
+                className="w-full bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 transition-colors"
+              >
+                Definir Senha
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-2xl">
+          <div className="text-center mb-8">
+            <img src="uDVQpOngllnzN4bKKpxkJ" alt="MetaX" className="w-16 h-16 mx-auto mb-4" />
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">MetaX</h1>
+            <p className="text-gray-600">Sistema Corporativo</p>
+          </div>
+          
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Usuário</label>
+              <input
+                type="text"
+                value={selectedUser}
+                onChange={(e) => setSelectedUser(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Digite seu usuário"
+                required
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Senha</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Digite sua senha"
+                required
+              />
+            </div>
+            
+            <button
+              type="submit"
+              className="w-full bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 transition-colors"
+            >
+              Entrar
+            </button>
+          </form>
+          
+
+        </div>
+      </div>
+    );
+  };
+
+  // Dashboard
+  const renderDashboard = () => {
+    const monthlyProfit = calculateMonthlyProfit();
+    const auditScore = getCurrentAuditScore();
+    
+    return (
+      <div className="p-4 pb-24">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+              <Home className="w-6 h-6 text-blue-600" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
+              <p className="text-xs text-gray-500">Bem-vindo, {currentUser?.name}</p>
+            </div>
+          </div>
+          {canManageFinances() && (
+            <button 
+              onClick={() => setShowFinancialForm(true)}
+              className="bg-green-600 text-white p-2 rounded-xl hover:bg-green-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+            <div className="flex items-center gap-3 mb-3">
+              <div className={`w-8 h-8 ${monthlyProfit.color === 'green' ? 'bg-green-100' : 'bg-red-100'} rounded-full flex items-center justify-center`}>
+                <TrendingUp className={`w-4 h-4 ${monthlyProfit.color === 'green' ? 'text-green-600' : 'text-red-600'}`} />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Lucro Mensal</p>
+                <p className="text-lg font-bold text-gray-900">{monthlyProfit.value}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className={`text-xs font-medium ${monthlyProfit.color === 'green' ? 'text-green-600' : 'text-red-600'}`}>{monthlyProfit.growth}</span>
+              <span className="text-xs text-gray-500">vs mês anterior</span>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+            <div className="flex items-center gap-3 mb-3">
+              <div className={`w-8 h-8 ${auditScore.color === 'green' ? 'bg-green-100' : auditScore.color === 'orange' ? 'bg-orange-100' : 'bg-red-100'} rounded-full flex items-center justify-center`}>
+                <BarChart3 className={`w-4 h-4 ${auditScore.color === 'green' ? 'text-green-600' : auditScore.color === 'orange' ? 'text-orange-600' : 'text-red-600'}`} />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Score Auditoria</p>
+                <p className="text-lg font-bold text-gray-900">{auditScore.value}/{auditScore.max}</p>
+              </div>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className={`h-2 rounded-full ${auditScore.color === 'green' ? 'bg-green-500' : auditScore.color === 'orange' ? 'bg-orange-500' : 'bg-red-500'}`} style={{width: `${auditScore.value}%`}}></div>
+            </div>
+            {canManageFinances() && (
+              <button 
+                onClick={() => setShowAuditForm(true)}
+                className="text-xs text-blue-600 hover:text-blue-800 mt-2"
+              >
+                Atualizar Score
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-900">Departamentos</h3>
+              {canManageFinances() && (
+                <button 
+                  onClick={() => setShowMetricsForm(true)}
+                  className="text-xs text-blue-600 hover:text-blue-800"
+                >
+                  Atualizar
+                </button>
+              )}
+            </div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Marketing</p>
+                  <p className="text-xs text-gray-500">{cityMetrics.marketing.status}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-bold text-gray-900">{cityMetrics.marketing.progress}%</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+                  <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Design</p>
+                  <p className="text-xs text-gray-500">{cityMetrics.design.status}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-bold text-gray-900">{cityMetrics.design.progress}%</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Social Media</p>
+                  <p className="text-xs text-gray-500">{cityMetrics.socialMedia.status}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-bold text-gray-900">{cityMetrics.socialMedia.progress}%</p>
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Aprovações
+  const renderApprovals = () => (
+    <div className="p-4 pb-24">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+          <CheckCircle className="w-6 h-6 text-green-600" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Aprovações</h1>
+          <p className="text-xs text-gray-500">{pendingApprovals.length} solicitações</p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {pendingApprovals.map(item => (
+          <div key={item.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div 
+              onClick={() => {
+                setSelectedRequestId(item.id);
+                setShowRequestDetails(true);
+              }}
+              className="p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={`w-2 h-2 rounded-full ${getPriorityDot(item.priority)}`}></div>
+                    <span className="text-xs font-medium text-gray-600">{item.type}</span>
+                    <span className={`px-2 py-1 text-xs rounded-full border ${getStatusColor(item.status)}`}>
+                      {item.status}
+                    </span>
+                  </div>
+                  <h3 className="font-semibold text-gray-900 mb-1">{item.name}</h3>
+                  <p className="text-sm text-gray-600 mb-2">{item.description}</p>
+                  {item.type === 'Despesa' && item.requestedAmount && (
+                    <div className="mb-2">
+                      <span className="text-sm font-medium text-green-600">
+                        💰 Valor: R$ {parseFloat(item.requestedAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <Clock className="w-3 h-3" />
+                    <span>Atualizado: {item.lastUpdate}</span>
+                    <Eye className="w-3 h-3 ml-2" />
+                    <span>Clique para ver detalhes</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {canUserApprove() && item.status === 'Solicitada' ? (
+              <div className="flex gap-2 p-4 pt-3 border-t border-gray-100 bg-gray-50">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleApproval(item.id, 'approve');
+                  }}
+                  className="flex-1 bg-green-600 text-white py-2 px-4 rounded-xl text-sm font-medium hover:bg-green-700 transition-colors"
+                >
+                  ✅ Aprovar
+                </button>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleApproval(item.id, 'reject');
+                  }}
+                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-xl text-sm font-medium hover:bg-red-700 transition-colors"
+                >
+                  ❌ Rejeitar
+                </button>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedRequestId(item.id);
+                    setShowRequestDetails(true);
+                  }}
+                  className="bg-blue-600 text-white py-2 px-4 rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors"
+                >
+                  👁️ Ver Detalhes
+                </button>
+              </div>
+            ) : item.status === 'Pendente' && item.type === 'Despesa' ? (
+              <div className="p-4 pt-3 border-t border-gray-100 bg-orange-50">
+                <div className="text-center">
+                  <p className="text-sm text-orange-800 font-medium mb-2">💰 Despesa aprovada - Aguardando execução</p>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedExpenseId(item.id);
+                      setExpenseProof({ requestId: item.id, actualAmount: '', proofs: '' });
+                      setShowProofModal(true);
+                    }}
+                    className="bg-blue-600 text-white py-2 px-4 rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors"
+                  >
+                    📎 Adicionar Comprovantes
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 pt-3 border-t border-gray-100 bg-gray-50">
+                <div className="text-center">
+                  <p className="text-sm text-gray-600">
+                    {item.status === 'Finalizada' 
+                      ? `✅ Finalizada por ${item.finalizedBy || 'Sistema'} - R$ ${parseFloat(item.actualAmount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                      : item.status === 'Aprovada' || item.status === 'Rejeitada'
+                      ? `${item.status} por ${item.approver || 'Sistema'}`
+                      : 'Sem permissão para aprovar'
+                    }
+                  </p>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedRequestId(item.id);
+                      setShowRequestDetails(true);
+                    }}
+                    className="mt-2 bg-gray-600 text-white py-1 px-3 rounded-lg text-xs font-medium hover:bg-gray-700 transition-colors"
+                  >
+                    👁️ Ver Detalhes
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Solicitações
+  const renderRequests = () => {
+    const handleSubmitRequest = (e) => {
+      e.preventDefault();
+      createNewRequest(newRequest);
+      setNewRequest({ type: '', name: '', description: '', priority: 'média', requestedAmount: '' });
+      setShowForm(false);
+    };
+
+    if (showForm) {
+      return (
+        <div className="p-4 pb-24">
+          <div className="flex items-center gap-3 mb-6">
+            <button onClick={() => setShowForm(false)} className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+              <XCircle className="w-5 h-5 text-gray-600" />
+            </button>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Nova Solicitação</h1>
+              <p className="text-xs text-gray-500">Criar nova solicitação</p>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmitRequest} className="space-y-4">
+            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Tipo</label>
+                <select
+                  value={newRequest.type}
+                  onChange={(e) => setNewRequest({...newRequest, type: e.target.value})}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                  required
+                >
+                  <option value="">Selecione o tipo</option>
+                  <option value="Despesa">💸 Solicitação de Despesa</option>
+                  <option value="Relatório">📊 Relatório</option>
+                  <option value="Auditoria">🔍 Auditoria</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nome/Título</label>
+                <input
+                  type="text"
+                  value={newRequest.name}
+                  onChange={(e) => setNewRequest({...newRequest, name: e.target.value})}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                  placeholder="Nome da solicitação"
+                  required
+                />
+              </div>
+              
+              
+              {newRequest.type === 'Despesa' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Valor Solicitado (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={newRequest.requestedAmount}
+                    onChange={(e) => setNewRequest({...newRequest, requestedAmount: e.target.value})}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                    placeholder="0,00"
+                    required
+                  />
+                </div>
+              )}
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Descrição</label>
+                <textarea
+                  value={newRequest.description}
+                  onChange={(e) => setNewRequest({...newRequest, description: e.target.value})}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 h-24 resize-none"
+                  placeholder="Descreva os detalhes da solicitação"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Prioridade</label>
+                <select
+                  value={newRequest.priority}
+                  onChange={(e) => setNewRequest({...newRequest, priority: e.target.value})}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="baixa">Baixa</option>
+                  <option value="média">Média</option>
+                  <option value="alta">Alta</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-medium hover:bg-gray-300 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 transition-colors"
+              >
+                Criar Solicitação
+              </button>
+            </div>
+          </form>
+        </div>
+      );
+    }
+
+    return (
+      <div className="p-4 pb-24">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+            <FileText className="w-6 h-6 text-blue-600" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Solicitações</h1>
+            <p className="text-xs text-gray-500">{pendingApprovals.length} existentes</p>
+          </div>
+        </div>
+
+        {canUserCreate() ? (
+          <div className="mb-6">
+            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Plus className="w-8 h-8 text-blue-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Criar Nova Solicitação</h3>
+                <p className="text-gray-500 mb-6">Solicite aprovação para usuários, relatórios e projetos</p>
+                <button 
+                  onClick={() => setShowForm(true)}
+                  className="bg-blue-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-blue-700 transition-colors"
+                >
+                  Nova Solicitação
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <XCircle className="w-8 h-8 text-gray-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Sem Permissão</h3>
+              <p className="text-gray-500">Seu cargo não permite criar solicitações</p>
+            </div>
+          </div>
+        )}
+        
+        {/* My Requests Section */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+          <div className="p-4 border-b border-gray-100">
+            <h2 className="font-semibold text-gray-900">📄 Minhas Solicitações</h2>
+            <p className="text-sm text-gray-500">Acompanhe o status das suas solicitações</p>
+          </div>
+          <div className="p-4 space-y-3">
+            {pendingApprovals
+              .filter(request => request.createdBy === currentUser?.name)
+              .map(request => (
+                <div 
+                  key={request.id} 
+                  onClick={() => {
+                    if (request.status === 'Solicitada') {
+                      setSelectedRequestId(request.id);
+                      setShowRequestDetails(true);
+                    }
+                  }}
+                  className={`bg-gray-50 rounded-xl p-4 ${request.status === 'Solicitada' ? 'cursor-pointer hover:bg-gray-100 transition-colors' : ''}`}
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-medium text-gray-600">{request.type}</span>
+                        <span className={`px-2 py-1 text-xs rounded-full border ${getStatusColor(request.status)}`}>
+                          {request.status}
+                        </span>
+                      </div>
+                      <h3 className="font-medium text-gray-900">{request.name}</h3>
+                      <p className="text-sm text-gray-600 mt-1">{request.description}</p>
+                      {request.type === 'Despesa' && request.requestedAmount && (
+                        <p className="text-sm font-medium text-green-600 mt-1">
+                          Valor: R$ {parseFloat(request.requestedAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-gray-500">
+                      Última atualização: {request.lastUpdate}
+                    </div>
+                    {request.status === 'Pendente' && request.type === 'Despesa' && (
+                      <div className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded-full">
+                        💰 Aprovado - Execute o gasto
+                      </div>
+                    )}
+                    {request.status === 'Finalizada' && (
+                      <div className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                        ✅ Concluído - R$ {parseFloat(request.actualAmount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))
+            }
+            {pendingApprovals.filter(request => request.createdBy === currentUser?.name).length === 0 && (
+              <div className="text-center py-8">
+                <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <FileText className="w-6 h-6 text-gray-400" />
+                </div>
+                <p className="text-gray-500">Nenhuma solicitação encontrada</p>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {/* Request Details Modal */}
+        {showRequestDetails && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+              {(() => {
+                const request = pendingApprovals.find(r => r.id === selectedRequestId);
+                if (!request) return null;
+                
+                const approvers = registeredUsers.filter(user => 
+                  ['CEO', 'Diretoria'].includes(user.role)
+                );
+                
+                return (
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-lg font-bold text-gray-900">Detalhes da Solicitação</h2>
+                      <button 
+                        onClick={() => {
+                          setShowRequestDetails(false);
+                          setSelectedRequestId(null);
+                        }}
+                        className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center hover:bg-gray-200"
+                      >
+                        <XCircle className="w-4 h-4 text-gray-600" />
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      {/* Request Info */}
+                      <div className="bg-gray-50 rounded-xl p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-medium text-gray-600">{request.type}</span>
+                          <span className={`px-2 py-1 text-xs rounded-full border ${getStatusColor(request.status)}`}>
+                            {request.status}
+                          </span>
+                        </div>
+                        <h3 className="font-semibold text-gray-900 mb-1">{request.name}</h3>
+                        <p className="text-sm text-gray-600 mb-2">{request.description}</p>
+                        {request.requestedAmount && (
+                          <p className="text-sm font-medium text-green-600">
+                            Valor: R$ {parseFloat(request.requestedAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-500 mt-2">
+                          Criado em: {request.createdAt}
+                        </p>
+                      </div>
+                      
+                      {/* Approvers Section */}
+                      <div className="bg-blue-50 rounded-xl p-4">
+                        <h4 className="font-medium text-blue-900 mb-3 flex items-center gap-2">
+                          👥 Aprovadores Responsáveis
+                        </h4>
+                        <div className="space-y-2">
+                          {approvers.map(approver => (
+                            <div key={approver.id} className="flex items-center gap-3 p-2 bg-white rounded-lg">
+                              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                                <span className="text-xs font-bold text-blue-600">
+                                  {approver.name.charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                              <div className="flex-1">
+                                <p className="text-sm font-medium text-gray-900">{approver.name}</p>
+                                <p className="text-xs text-gray-500">{approver.role}</p>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                {request.approver === approver.name ? (
+                                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                ) : (
+                                  <div className="w-2 h-2 bg-gray-300 rounded-full"></div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {approvers.length === 0 && (
+                          <p className="text-sm text-gray-500">Nenhum aprovador encontrado</p>
+                        )}
+                      </div>
+                      
+                      {/* Status Info */}
+                      <div className="bg-orange-50 rounded-xl p-4">
+                        <h4 className="font-medium text-orange-900 mb-2">📋 Status Atual</h4>
+                        <p className="text-sm text-orange-800">
+                          {request.status === 'Solicitada' && '⏳ Aguardando aprovação dos responsáveis'}
+                          {request.status === 'Pendente' && '💰 Aprovado! Execute o gasto e adicione comprovantes'}
+                          {request.status === 'Finalizada' && `✅ Finalizado por ${request.finalizedBy}`}
+                          {request.status === 'Rejeitada' && `❌ Rejeitado por ${request.approver}`}
+                        </p>
+                        <p className="text-xs text-orange-600 mt-1">
+                          Última atualização: {request.lastUpdate}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <button 
+                      onClick={() => {
+                        setShowRequestDetails(false);
+                        setSelectedRequestId(null);
+                      }}
+                      className="w-full mt-6 bg-gray-200 text-gray-800 py-3 rounded-xl font-medium hover:bg-gray-300 transition-colors"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+        
+        {/* Notifications Modal */}
+        {showNotifications && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-gray-900">🔔 Notificações</h2>
+                <button 
+                  onClick={() => setShowNotifications(false)}
+                  className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center hover:bg-gray-200"
+                >
+                  <XCircle className="w-4 h-4 text-gray-600" />
+                </button>
+              </div>
+              
+              <div className="space-y-3">
+                {pendingApprovals.filter(item => item.status === 'Solicitada' && canUserApprove()).length > 0 ? (
+                  pendingApprovals
+                    .filter(item => item.status === 'Solicitada' && canUserApprove())
+                    .slice(0, 5)
+                    .map(item => (
+                      <div key={item.id} className="bg-yellow-50 rounded-lg p-3 border-l-4 border-yellow-400">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-medium text-yellow-700">{item.type}</span>
+                        </div>
+                        <p className="text-sm font-medium text-yellow-900">{item.name}</p>
+                        <p className="text-xs text-yellow-600">Aguardando sua aprovação</p>
+                      </div>
+                    ))
+                ) : (
+                  <div className="text-center py-6">
+                    <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <Bell className="w-6 h-6 text-gray-400" />
+                    </div>
+                    <p className="text-gray-500">Nenhuma notificação</p>
+                  </div>
+                )}
+              </div>
+              
+              <button 
+                onClick={() => {
+                  setShowNotifications(false);
+                  setActiveTab('approvals');
+                }}
+                className="w-full mt-4 bg-blue-600 text-white py-2 rounded-xl font-medium hover:bg-blue-700 transition-colors"
+              >
+                Ver Todas Aprovações
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Gerenciamento de Usuários
+  const renderUsers = () => {
+    const handleSubmitUser = (e) => {
+      e.preventDefault();
+      registerNewUser(newUser);
+      setNewUser({ name: '', username: '', role: 'Adm Staff' });
+      setShowUserForm(false);
+    };
+
+    if (showUserForm) {
+      return (
+        <div className="p-4 pb-24">
+          <div className="flex items-center gap-3 mb-6">
+            <button onClick={() => setShowUserForm(false)} className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+              <XCircle className="w-5 h-5 text-gray-600" />
+            </button>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Novo Usuário</h1>
+              <p className="text-xs text-gray-500">Cadastrar novo funcionário</p>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmitUser} className="space-y-4">
+            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nome Completo</label>
+                <input
+                  type="text"
+                  value={newUser.name}
+                  onChange={(e) => setNewUser({...newUser, name: e.target.value})}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                  placeholder="Nome completo do funcionário"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Usuário (Login)</label>
+                <input
+                  type="text"
+                  value={newUser.username}
+                  onChange={(e) => setNewUser({...newUser, username: e.target.value})}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                  placeholder="Nome de usuário para login"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Cargo</label>
+                <select
+                  value={newUser.role}
+                  onChange={(e) => setNewUser({...newUser, role: e.target.value})}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                  required
+                >
+                  <option value="">Selecione o cargo</option>
+                  <option value="CEO">CEO</option>
+                  <option value="Diretoria">Diretoria</option>
+                  <option value="Alta Cúpula">Alta Cúpula</option>
+                  <option value="Adm Staff">Adm Staff</option>
+                </select>
+              </div>
+              
+              <div className="bg-blue-50 p-4 rounded-xl">
+                <p className="text-sm text-blue-800">
+                  <strong>Informação:</strong> O usuário deverá definir sua própria senha no primeiro login.
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowUserForm(false)}
+                className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-medium hover:bg-gray-300 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 transition-colors"
+              >
+                Cadastrar Usuário
+              </button>
+            </div>
+          </form>
+        </div>
+      );
+    }
+
+    if (!canManageUsers()) {
+      return (
+        <div className="p-4 pb-24">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+              <XCircle className="w-6 h-6 text-red-600" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Usuários</h1>
+              <p className="text-xs text-gray-500">Acesso negado</p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <XCircle className="w-8 h-8 text-red-500" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Acesso Negado</h3>
+              <p className="text-gray-500">Apenas usuários do cargo Diretoria podem gerenciar usuários</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="p-4 pb-24">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+              <Users className="w-6 h-6 text-purple-600" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Usuários</h1>
+              <p className="text-xs text-gray-500">{registeredUsers.length} cadastrados</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => setShowUserForm(true)}
+            className="bg-purple-600 text-white p-3 rounded-xl hover:bg-purple-700 transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {registeredUsers.map(user => (
+            <div key={user.id} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+                    <span className="text-purple-600 font-bold text-sm">
+                      {user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                    </span>
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900">{user.name}</h3>
+                    <p className="text-sm text-gray-600">{user.role}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {user.needsPassword ? (
+                    <span className="px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded-full border border-orange-200">
+                      Senha pendente
+                    </span>
+                  ) : (
+                    <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full border border-green-200">
+                      Ativo
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="text-xs text-gray-500">
+                <p>Criado por: {user.createdBy}</p>
+                <p>Data: {user.createdAt}</p>
+              </div>
+            </div>
+          ))}
+          
+          {registeredUsers.length === 0 && (
+            <div className="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Users className="w-8 h-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Nenhum usuário cadastrado</h3>
+                <p className="text-gray-500 mb-6">Cadastre os funcionários para acessar o sistema</p>
+                <button 
+                  onClick={() => setShowUserForm(true)}
+                  className="bg-blue-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-blue-700 transition-colors"
+                >
+                  Cadastrar Primeiro Usuário
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Financial Management Forms
+  const renderFinancialForm = () => {
+    const handleSubmitTransaction = (e) => {
+      e.preventDefault();
+      addTransaction(newTransaction);
+      setNewTransaction({ type: 'receita', amount: '', description: '', date: new Date().toISOString().split('T')[0] });
+      setShowFinancialForm(false);
+    };
+
+    const handleSubmitProof = (e) => {
+      e.preventDefault();
+      finalizeExpense(expenseProof.requestId, parseFloat(expenseProof.actualAmount), expenseProof.proofs);
+      setShowExpenseProofForm(false);
+      setShowProofModal(false);
+      setExpenseProof({ requestId: null, actualAmount: '', proofs: '' });
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold text-gray-900">Lançamento Financeiro</h2>
+            <button onClick={() => setShowFinancialForm(false)} className="text-gray-500 hover:text-gray-700">
+              <XCircle className="w-6 h-6" />
+            </button>
+          </div>
+          
+          <form onSubmit={handleSubmitTransaction} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Tipo</label>
+              <div className="w-full px-4 py-3 border border-gray-300 rounded-xl bg-green-50 text-green-800 font-medium">
+                💰 Receita
+              </div>
+              <input type="hidden" name="type" value="receita" />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Valor (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={newTransaction.amount}
+                onChange={(e) => setNewTransaction({...newTransaction, amount: e.target.value})}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                placeholder="0,00"
+                required
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Data</label>
+              <input
+                type="date"
+                value={newTransaction.date}
+                onChange={(e) => setNewTransaction({...newTransaction, date: e.target.value})}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Descrição</label>
+              <textarea
+                value={newTransaction.description}
+                onChange={(e) => setNewTransaction({...newTransaction, description: e.target.value})}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 h-20 resize-none"
+                placeholder="Descrição do lançamento"
+                required
+              />
+            </div>
+            
+            <div className="flex gap-3 pt-4">
+              <button
+                type="button"
+                onClick={() => setShowFinancialForm(false)}
+                className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-medium hover:bg-gray-300 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="flex-1 bg-green-600 text-white py-3 rounded-xl font-medium hover:bg-green-700 transition-colors"
+              >
+                Lançar
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+  
+  const renderAuditForm = () => {
+    const handleSubmitAudit = (e) => {
+      e.preventDefault();
+      addAuditScore(auditUpdate);
+      setAuditUpdate({ score: '', note: '' });
+      setShowAuditForm(false);
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold text-gray-900">Atualizar Auditoria</h2>
+            <button onClick={() => setShowAuditForm(false)} className="text-gray-500 hover:text-gray-700">
+              <XCircle className="w-6 h-6" />
+            </button>
+          </div>
+          
+          <form onSubmit={handleSubmitAudit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Score (0-100)</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={auditUpdate.score}
+                onChange={(e) => setAuditUpdate({...auditUpdate, score: e.target.value})}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                placeholder="Nota de 0 a 100"
+                required
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Observações</label>
+              <textarea
+                value={auditUpdate.note}
+                onChange={(e) => setAuditUpdate({...auditUpdate, note: e.target.value})}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 h-24 resize-none"
+                placeholder="Observações sobre a auditoria"
+                required
+              />
+            </div>
+            
+            <div className="flex gap-3 pt-4">
+              <button
+                type="button"
+                onClick={() => setShowAuditForm(false)}
+                className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-medium hover:bg-gray-300 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 transition-colors"
+              >
+                Atualizar
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+  
+  const renderMetricsForm = () => {
+    const handleSubmitMetrics = (e) => {
+      e.preventDefault();
+      // Update department metrics
+      setShowMetricsForm(false);
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold text-gray-900">Atualizar Departamentos</h2>
+            <button onClick={() => setShowMetricsForm(false)} className="text-gray-500 hover:text-gray-700">
+              <XCircle className="w-6 h-6" />
+            </button>
+          </div>
+          
+          <form onSubmit={handleSubmitMetrics} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Marketing (%)</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                defaultValue={cityMetrics.marketing.progress}
+                onChange={(e) => setCityMetrics(prev => ({
+                  ...prev,
+                  marketing: {
+                    ...prev.marketing,
+                    progress: parseInt(e.target.value),
+                    status: parseInt(e.target.value) >= 90 ? 'Excelente' : parseInt(e.target.value) >= 70 ? 'Em dia' : 'Atrasado',
+                    color: parseInt(e.target.value) >= 70 ? 'green' : 'orange'
+                  }
+                }))}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Design (%)</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                defaultValue={cityMetrics.design.progress}
+                onChange={(e) => setCityMetrics(prev => ({
+                  ...prev,
+                  design: {
+                    ...prev.design,
+                    progress: parseInt(e.target.value),
+                    status: parseInt(e.target.value) >= 90 ? 'Excelente' : parseInt(e.target.value) >= 70 ? 'Em dia' : 'Atrasado',
+                    color: parseInt(e.target.value) >= 70 ? 'green' : 'orange'
+                  }
+                }))}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Social Media (%)</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                defaultValue={cityMetrics.socialMedia.progress}
+                onChange={(e) => setCityMetrics(prev => ({
+                  ...prev,
+                  socialMedia: {
+                    ...prev.socialMedia,
+                    progress: parseInt(e.target.value),
+                    status: parseInt(e.target.value) >= 90 ? 'Excelente' : parseInt(e.target.value) >= 70 ? 'Em dia' : 'Atrasado',
+                    color: parseInt(e.target.value) >= 70 ? 'green' : 'orange'
+                  }
+                }))}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            
+            <div className="bg-blue-50 p-4 rounded-xl">
+              <p className="text-sm text-blue-800">
+                <strong>Info:</strong> 90%+ = Excelente, 70%+ = Em dia, abaixo de 70% = Atrasado
+              </p>
+            </div>
+            
+            <div className="flex gap-3 pt-4">
+              <button
+                type="button"
+                onClick={() => setShowMetricsForm(false)}
+                className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-medium hover:bg-gray-300 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="flex-1 bg-purple-600 text-white py-3 rounded-xl font-medium hover:bg-purple-700 transition-colors"
+              >
+                Atualizar
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  // Monthly Reports
+  const renderReports = () => {
+    const monthlyProfit = calculateMonthlyProfit();
+    const currentMonth = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    
+    // Filter transactions based on user role
+    const getVisibleTransactions = () => {
+      if (currentUser?.role === 'CEO') {
+        return transactions; // CEO sees all transactions
+      } else if (currentUser?.role === 'Diretoria') {
+        return transactions.filter(t => 
+          t.createdByRole === 'Diretoria' || 
+          t.createdByRole === 'CEO' ||
+          t.createdBy === currentUser?.name
+        );
+      } else {
+        return transactions.filter(t => t.createdBy === currentUser?.name);
+      }
+    };
+
+    // Calculate monthly stats
+    const visibleTransactions = getVisibleTransactions();
+    const currentMonthTransactions = visibleTransactions.filter(t => {
+      const transactionDate = new Date(t.date);
+      const now = new Date();
+      return transactionDate.getMonth() === now.getMonth() && 
+             transactionDate.getFullYear() === now.getFullYear();
+    });
+    
+    const monthlyReceitas = currentMonthTransactions
+      .filter(t => t.type === 'receita')
+      .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+      
+    const monthlyDespesas = currentMonthTransactions
+      .filter(t => t.type === 'despesa')
+      .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+    
+    const pendingExpenses = pendingApprovals
+      .filter(item => item.type === 'Despesa' && item.status === 'Pendente')
+      .reduce((sum, item) => sum + parseFloat(item.requestedAmount || 0), 0);
+    
+    return (
+      <div className="p-4 pb-24">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+            <BarChart3 className="w-6 h-6 text-orange-600" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Relatórios</h1>
+            <p className="text-xs text-gray-500">Resumo de {currentMonth}</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {/* Monthly Summary */}
+          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+            <h3 className="font-semibold text-gray-900 mb-4">Resumo Financeiro - {currentMonth}</h3>
+            
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="bg-green-50 p-4 rounded-xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-xs font-bold">+</span>
+                  </div>
+                  <span className="text-sm font-medium text-green-800">Receitas</span>
+                </div>
+                <p className="text-xl font-bold text-green-900">R$ {monthlyReceitas.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                <p className="text-xs text-green-600">{currentMonthTransactions.filter(t => t.type === 'receita').length} lançamentos</p>
+              </div>
+              
+              <div className="bg-red-50 p-4 rounded-xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 bg-red-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-xs font-bold">-</span>
+                  </div>
+                  <span className="text-sm font-medium text-red-800">Despesas</span>
+                </div>
+                <p className="text-xl font-bold text-red-900">R$ {monthlyDespesas.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                <p className="text-xs text-red-600">{currentMonthTransactions.filter(t => t.type === 'despesa').length} lançamentos</p>
+              </div>
+            </div>
+            
+            <div className={`p-4 rounded-xl ${monthlyProfit.profit >= 0 ? 'bg-blue-50' : 'bg-orange-50'}`}>
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-gray-700">Lucro Líquido:</span>
+                <span className={`text-xl font-bold ${monthlyProfit.profit >= 0 ? 'text-blue-900' : 'text-orange-900'}`}>
+                  {monthlyProfit.value}
+                </span>
+              </div>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-sm text-gray-600">Crescimento:</span>
+                <span className={`text-sm font-medium ${monthlyProfit.color === 'green' ? 'text-green-600' : 'text-red-600'}`}>
+                  {monthlyProfit.growth}
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          {/* Pending Expenses */}
+          {pendingExpenses > 0 && (
+            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+              <h3 className="font-semibold text-gray-900 mb-4">Despesas Aprovadas Pendentes</h3>
+              <div className="bg-yellow-50 p-4 rounded-xl">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-yellow-800">Total Aprovado:</span>
+                  <span className="text-xl font-bold text-yellow-900">
+                    R$ {pendingExpenses.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                  </span>
+                </div>
+                <p className="text-sm text-yellow-700 mt-1">
+                  Aguardando comprovantes de gastos
+                </p>
+              </div>
+            </div>
+          )}
+          
+          {/* Recent Transactions */}
+          {currentMonthTransactions.length > 0 && (
+            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+              <h3 className="font-semibold text-gray-900 mb-4">Últimos Lançamentos</h3>
+              <div className="space-y-3">
+                {currentMonthTransactions.slice(-5).reverse().map(transaction => (
+                  <div key={transaction.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                        transaction.type === 'receita' ? 'bg-green-100' : 'bg-red-100'
+                      }`}>
+                        <span className={`text-xs font-bold ${
+                          transaction.type === 'receita' ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {transaction.type === 'receita' ? '+' : '-'}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{transaction.description}</p>
+                        <p className="text-xs text-gray-500">
+                          {new Date(transaction.date).toLocaleDateString('pt-BR')}
+                          {transaction.createdBy && currentUser?.role === 'CEO' && (
+                            <span className="ml-2 text-blue-600">• por {transaction.createdBy}</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <span className={`font-bold ${
+                      transaction.type === 'receita' ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      R$ {parseFloat(transaction.amount).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {visibleTransactions.length === 0 && (
+            <div className="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <BarChart3 className="w-8 h-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Nenhum lançamento</h3>
+                <p className="text-gray-500">Comece fazendo lançamentos financeiros para ver relatórios</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Show login if not authenticated
+  if (showLogin) {
+    return renderLogin();
+  }
+
+  const pendingCount = pendingApprovals.filter(item => ['Solicitada', 'Pendente', 'Em análise'].includes(item.status)).length;
+
+  return (
+    <div className="min-h-screen bg-gray-50 max-w-sm mx-auto">
+      {/* Header Mobile */}
+      <header className="bg-white px-4 py-4 shadow-sm sticky top-0 z-10">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src="uDVQpOngllnzN4bKKpxkJ" alt="MetaX" className="w-8 h-8" />
+            <div>
+              <h1 className="text-lg font-bold text-gray-900">MetaX</h1>
+              <p className="text-xs text-gray-500">Sistema Corporativo</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => setShowNotifications(true)}
+              className="relative hover:bg-gray-100 p-2 rounded-full transition-colors"
+            >
+              <Bell className="w-6 h-6 text-gray-500" />
+              {pendingCount > 0 && (
+                <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
+                  <span className="text-xs text-white font-bold">{pendingCount}</span>
+                </div>
+              )}
+            </button>
+            <button onClick={handleLogout} className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+              <div className="w-4 h-4 bg-red-500 rounded-full"></div>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Content */}
+      <main className="min-h-screen">
+        {activeTab === 'dashboard' && renderDashboard()}
+        {activeTab === 'approvals' && renderApprovals()}
+        {activeTab === 'requests' && renderRequests()}
+        {activeTab === 'users' && canManageUsers() && renderUsers()}
+        {activeTab === 'reports' && renderReports()}
+      </main>
+
+      {/* Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-2 max-w-sm mx-auto">
+        <div className="flex justify-around">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`flex flex-col items-center py-2 px-3 rounded-xl transition-colors ${
+              activeTab === 'dashboard' 
+                ? 'bg-blue-100 text-blue-600' 
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Home className="w-5 h-5 mb-1" />
+            <span className="text-xs font-medium">Dashboard</span>
+          </button>
+          
+          <button
+            onClick={() => setActiveTab('approvals')}
+            className={`flex flex-col items-center py-2 px-3 rounded-xl transition-colors relative ${
+              activeTab === 'approvals'
+                ? 'bg-green-100 text-green-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <CheckCircle className="w-5 h-5 mb-1" />
+            <span className="text-xs font-medium">Aprovações</span>
+            {pendingCount > 0 && (
+              <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
+                <span className="text-xs text-white font-bold">{pendingCount}</span>
+              </div>
+            )}
+          </button>
+          
+          <button
+            onClick={() => setActiveTab('requests')}
+            className={`flex flex-col items-center py-2 px-3 rounded-xl transition-colors ${
+              activeTab === 'requests'
+                ? 'bg-blue-100 text-blue-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <FileText className="w-5 h-5 mb-1" />
+            <span className="text-xs font-medium">Solicitações</span>
+          </button>
+          
+          {canManageUsers() && (
+            <button
+              onClick={() => setActiveTab('users')}
+              className={`flex flex-col items-center py-2 px-3 rounded-xl transition-colors ${
+                activeTab === 'users'
+                  ? 'bg-purple-100 text-purple-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Users className="w-5 h-5 mb-1" />
+              <span className="text-xs font-medium">Usuários</span>
+            </button>
+          )}
+          
+          <button
+            onClick={() => setActiveTab('reports')}
+            className={`flex flex-col items-center py-2 px-3 rounded-xl transition-colors ${
+              activeTab === 'reports'
+                ? 'bg-orange-100 text-orange-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <BarChart3 className="w-5 h-5 mb-1" />
+            <span className="text-xs font-medium">Relatórios</span>
+          </button>
+        </div>
+      </nav>
+      
+      {/* Modal Forms */}
+      {showFinancialForm && renderFinancialForm()}
+      {showAuditForm && renderAuditForm()}
+      {showMetricsForm && renderMetricsForm()}
+      
+      {/* Request Details Modal */}
+      {showRequestDetails && (() => {
+        const request = pendingApprovals.find(r => r.id === selectedRequestId);
+        const approvers = registeredUsers.filter(user => 
+          user.role === 'CEO' || user.role === 'Diretoria'
+        );
+        
+        return (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[80vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold">📋 Detalhes da Solicitação</h2>
+                <button 
+                  onClick={() => setShowRequestDetails(false)}
+                  className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center hover:bg-gray-200"
+                >
+                  <XCircle className="w-4 h-4 text-gray-600" />
+                </button>
+              </div>
+              
+              {request && (
+                <div className="space-y-4">
+                  {/* Request Info */}
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm font-medium text-gray-600">{request.type}</span>
+                      <span className={`px-2 py-1 text-xs rounded-full border ${getStatusColor(request.status)}`}>
+                        {request.status}
+                      </span>
+                    </div>
+                    <h3 className="font-bold text-gray-900 mb-1">{request.name}</h3>
+                    <p className="text-sm text-gray-600">{request.description}</p>
+                    {request.type === 'Despesa' && request.requestedAmount && (
+                      <div className="mt-2 p-2 bg-green-50 rounded-lg">
+                        <span className="text-sm font-medium text-green-800">
+                          💰 Valor: R$ {parseFloat(request.requestedAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Approvers Section */}
+                  <div className="bg-blue-50 rounded-xl p-4">
+                    <h4 className="font-semibold text-blue-900 mb-3">👥 Aprovadores</h4>
+                    <div className="space-y-2">
+                      {approvers.map(approver => (
+                        <div key={approver.id} className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-blue-200 rounded-full flex items-center justify-center">
+                            <span className="text-sm font-bold text-blue-800">
+                              {approver.name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="font-medium text-blue-900">{approver.name}</p>
+                            <p className="text-xs text-blue-600">{approver.role}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 text-xs text-blue-700 bg-blue-100 p-2 rounded-lg">
+                      ℹ️ Qualquer um destes aprovadores pode aprovar sua solicitação
+                    </div>
+                  </div>
+                  
+                  {/* Timeline */}
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <h4 className="font-semibold text-gray-900 mb-2">⏰ Histórico</h4>
+                    <div className="text-sm text-gray-600">
+                      <p>📅 Criado: {request.createdAt}</p>
+                      <p>🔄 Última atualização: {request.lastUpdate}</p>
+                      <p>👤 Prioridade: {request.priority}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+      
+      {/* Notifications Modal */}
+      {showNotifications && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">🔔 Notificações</h2>
+              <button 
+                onClick={() => setShowNotifications(false)}
+                className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center hover:bg-gray-200"
+              >
+                <XCircle className="w-4 h-4 text-gray-600" />
+              </button>
+            </div>
+            
+            <div className="space-y-3">
+              {/* Pending Approvals Notifications */}
+              {pendingApprovals.filter(item => 
+                (canUserApprove() && item.status === 'Solicitada') ||
+                (item.createdBy === currentUser?.name)
+              ).map(item => (
+                <div key={item.id} className="bg-gray-50 rounded-xl p-3">
+                  <div className="flex items-start gap-3">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900">{item.name}</p>
+                      <p className="text-sm text-gray-600">
+                        {canUserApprove() && item.status === 'Solicitada' 
+                          ? '⏳ Aguardando sua aprovação'
+                          : item.createdBy === currentUser?.name
+                          ? `📋 Status: ${item.status}`
+                          : ''
+                        }
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">{item.lastUpdate}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              
+              {/* Expense notifications */}
+              {pendingApprovals.filter(item => 
+                item.type === 'Despesa' && item.status === 'Pendente' && item.createdBy === currentUser?.name
+              ).map(item => (
+                <div key={`pending-${item.id}`} className="bg-orange-50 rounded-xl p-3">
+                  <div className="flex items-start gap-3">
+                    <div className="w-2 h-2 bg-orange-500 rounded-full mt-2"></div>
+                    <div className="flex-1">
+                      <p className="font-medium text-orange-900">{item.name}</p>
+                      <p className="text-sm text-orange-700">
+                        💰 Despesa aprovada - Execute o gasto
+                      </p>
+                      <p className="text-xs text-orange-600 mt-1">{item.lastUpdate}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              
+              {pendingApprovals.filter(item => 
+                (canUserApprove() && item.status === 'Solicitada') ||
+                (item.createdBy === currentUser?.name)
+              ).length === 0 && (
+                <div className="text-center py-8">
+                  <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <Bell className="w-6 h-6 text-gray-400" />
+                  </div>
+                  <p className="text-gray-500">Nenhuma notificação</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Proof Modal */}
+      {showProofModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">📎 Comprovantes de Despesa</h2>
+              <button 
+                onClick={() => {
+                  setShowProofModal(false);
+                  setExpenseProof({ requestId: null, actualAmount: '', proofs: '' });
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleSubmitProof} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Valor Real Gasto (R$)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={expenseProof.actualAmount}
+                  onChange={(e) => setExpenseProof({...expenseProof, actualAmount: e.target.value})}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                  placeholder="0,00"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Comprovantes/Notas</label>
+                <textarea
+                  value={expenseProof.proofs}
+                  onChange={(e) => setExpenseProof({...expenseProof, proofs: e.target.value})}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 h-24"
+                  placeholder="Descreva os comprovantes ou anexe informações das notas fiscais..."
+                  required
+                />
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowProofModal(false);
+                    setExpenseProof({ requestId: null, actualAmount: '', proofs: '' });
+                  }}
+                  className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-medium hover:bg-gray-300 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-green-600 text-white py-3 rounded-xl font-medium hover:bg-green-700 transition-colors"
+                >
+                  ✅ Finalizar Despesa
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // Settings Tab
+  const renderSettings = () => (
+    <div className="space-y-6">
+      <h3 className="text-xl font-semibold mb-6">Configurações do Sistema</h3>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <h4 className="font-medium mb-4">Configurações de Usuário</h4>
+          <div className="space-y-3">
+            <button 
+              onClick={() => setActiveTab('users')}
+              className="w-full text-left p-3 border rounded-lg hover:bg-gray-50"
+            >
+              Gerenciar Usuários
+            </button>
+            <button className="w-full text-left p-3 border rounded-lg hover:bg-gray-50">
+              Permissões e Roles
+            </button>
+          </div>
+        </div>
+        
+        <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <h4 className="font-medium mb-4">Configurações do Sistema</h4>
+          <div className="space-y-3">
+            <button className="w-full text-left p-3 border rounded-lg hover:bg-gray-50">
+              Configurações de Auditoria
+            </button>
+            <button className="w-full text-left p-3 border rounded-lg hover:bg-gray-50">
+              Backup e Segurança
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <div className="bg-white p-6 rounded-lg shadow-sm border">
+        <h4 className="font-medium mb-4">Informações do Sistema</h4>
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <div>
+            <span className="text-gray-600">Versão:</span>
+            <span className="ml-2 font-medium">MetaX v2.1.0</span>
+          </div>
+          <div>
+            <span className="text-gray-600">Última atualização:</span>
+            <span className="ml-2 font-medium">06/08/2025</span>
+          </div>
+          <div>
+            <span className="text-gray-600">Usuários ativos:</span>
+            <span className="ml-2 font-medium">{registeredUsers.length}</span>
+          </div>
+          <div>
+            <span className="text-gray-600">Score de auditoria:</span>
+            <span className="ml-2 font-medium text-green-600">{cityMetrics.auditScore.value}/100</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Login Screen */}
+      {showLogin && (
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md">
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 bg-blue-600 rounded-xl flex items-center justify-center mx-auto mb-4">
+                <BarChart3 className="w-8 h-8 text-white" />
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900">MetaX System</h1>
+              <p className="text-gray-600 mt-2">Sistema de Gestão Empresarial</p>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Selecionar Usuário
+                </label>
+                <select 
+                  className="w-full border border-gray-300 rounded-lg p-3"
+                  value={selectedUser}
+                  onChange={(e) => setSelectedUser(e.target.value)}
+                >
+                  <option value="">Escolha um usuário...</option>
+                  {registeredUsers.map(user => (
+                    <option key={user.id} value={user.id}>
+                      {user.name} ({user.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              {selectedUser && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Senha
+                  </label>
+                  <input
+                    type="password"
+                    className="w-full border border-gray-300 rounded-lg p-3"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Digite sua senha"
+                  />
+                </div>
+              )}
+              
+              <button
+                onClick={handleLogin}
+                disabled={!selectedUser || !password}
+                className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                Entrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Password Setup Modal */}
+      {showPasswordSetup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">Configurar Senha</h3>
+            <p className="text-gray-600 mb-4">Este é seu primeiro acesso. Configure uma senha para sua conta.</p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nova Senha</label>
+                <input
+                  type="password"
+                  className="w-full border border-gray-300 rounded-lg p-3"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Digite sua nova senha"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Confirmar Senha</label>
+                <input
+                  type="password"
+                  className="w-full border border-gray-300 rounded-lg p-3"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Confirme sua senha"
+                />
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowPasswordSetup(false)}
+                  className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg hover:bg-gray-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handlePasswordSetup}
+                  disabled={!newPassword || newPassword !== confirmPassword}
+                  className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-300"
+                >
+                  Salvar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Main App */}
+      {!showLogin && (
+        <div className="flex h-screen">
+          {/* Sidebar */}
+          <div className="w-64 bg-white shadow-lg">
+            <div className="p-6 border-b">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                  <BarChart3 className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h1 className="font-bold text-lg">MetaX</h1>
+                  <p className="text-xs text-gray-500">Sistema de Gestão</p>
+                </div>
+              </div>
+            </div>
+            
+            {/* User Info */}
+            <div className="p-4 border-b bg-gray-50">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-blue-200 rounded-full flex items-center justify-center">
+                  <span className="text-sm font-bold text-blue-800">
+                    {currentUser?.name?.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <div>
+                  <p className="font-medium text-sm">{currentUser?.name}</p>
+                  <p className="text-xs text-gray-600">{currentUser?.role}</p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Navigation */}
+            <nav className="p-4">
+              <div className="space-y-2">
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left ${
+                    activeTab === 'dashboard' ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Home className="w-4 h-4" />
+                  <span>Dashboard</span>
+                </button>
+                
+                <div className="relative">
+                  <button
+                    onClick={() => setActiveTab('requests')}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left ${
+                      activeTab === 'requests' ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Solicitações</span>
+                  </button>
+                  {getCurrentUserApprovals().length > 0 && (
+                    <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                      {getCurrentUserApprovals().length}
+                    </div>
+                  )}
+                </div>
+                
+                <button
+                  onClick={() => setActiveTab('financial')}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left ${
+                    activeTab === 'financial' ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <TrendingUp className="w-4 h-4" />
+                  <span>Financeiro</span>
+                </button>
+                
+                {canUserApprove() && (
+                  <button
+                    onClick={() => setActiveTab('users')}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left ${
+                      activeTab === 'users' ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    <Users className="w-4 h-4" />
+                    <span>Usuários</span>
+                  </button>
+                )}
+                
+                <button
+                  onClick={() => setActiveTab('settings')}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left ${
+                    activeTab === 'settings' ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>Configurações</span>
+                </button>
+              </div>
+              
+              <div className="mt-6 pt-4 border-t">
+                <button
+                  onClick={() => {
+                    setCurrentUser(null);
+                    setShowLogin(true);
+                  }}
+                  className="w-full text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg text-left"
+                >
+                  Sair
+                </button>
+              </div>
+            </nav>
+          </div>
+          
+          {/* Main Content */}
+          <div className="flex-1 flex flex-col">
+            {/* Header */}
+            <div className="bg-white shadow-sm border-b px-6 py-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold capitalize">
+                  {activeTab === 'dashboard' && 'Dashboard'}
+                  {activeTab === 'requests' && 'Solicitações'}
+                  {activeTab === 'financial' && 'Gestão Financeira'}
+                  {activeTab === 'users' && 'Gerenciamento de Usuários'}
+                  {activeTab === 'settings' && 'Configurações'}
+                </h2>
+                
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowNotifications(!showNotifications)}
+                      className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+                    >
+                      <Bell className="w-5 h-5" />
+                      {getCurrentUserApprovals().length > 0 && (
+                        <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                          {getCurrentUserApprovals().length}
+                        </div>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="flex-1 p-6 overflow-auto">
+              {activeTab === 'dashboard' && renderDashboard()}
+              {activeTab === 'requests' && renderRequests()}
+              {activeTab === 'financial' && renderFinancial()}
+              {activeTab === 'users' && renderUsers()}
+              {activeTab === 'settings' && renderSettings()}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Notifications Panel */}
+      {showNotifications && (
+        <div className="fixed top-16 right-6 w-80 bg-white rounded-lg shadow-xl border z-50 max-h-96 overflow-auto">
+          <div className="p-4 border-b">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">Notificações</h3>
+              <button
+                onClick={() => setShowNotifications(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+          
+          <div className="p-4">
+            <div className="space-y-3">
+              {pendingApprovals.filter(item => 
+                canUserApprove() && item.status === 'Solicitada'
+              ).map(item => (
+                <div key={item.id} className="border rounded-lg p-3 hover:bg-gray-50">
+                  <div className="flex items-start gap-3">
+                    <div className="w-2 h-2 bg-orange-500 rounded-full mt-2 flex-shrink-0"></div>
+                    <div className="flex-1">
+                      <p className="font-medium text-orange-900">{item.name}</p>
+                      <p className="text-sm text-orange-700">
+                        🔄 Aguardando sua aprovação
+                      </p>
+                      <p className="text-xs text-orange-600 mt-1">{item.lastUpdate}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              
+              {pendingApprovals.filter(item => 
+                item.createdBy === currentUser?.name && item.status === 'Aprovada'
+              ).map(item => (
+                <div key={item.id} className="border rounded-lg p-3 hover:bg-gray-50">
+                  <div className="flex items-start gap-3">
+                    <div className="w-2 h-2 bg-orange-500 rounded-full mt-2 flex-shrink-0"></div>
+                    <div className="flex-1">
+                      <p className="font-medium text-orange-900">{item.name}</p>
+                      <p className="text-sm text-orange-700">
+                        💰 Despesa aprovada - Execute o gasto
+                      </p>
+                      <p className="text-xs text-orange-600 mt-1">{item.lastUpdate}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              
+              {pendingApprovals.filter(item => 
+                (canUserApprove() && item.status === 'Solicitada') ||
+                (item.createdBy === currentUser?.name)
+              ).length === 0 && (
+                <div className="text-center py-8">
+                  <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <Bell className="w-6 h-6 text-gray-400" />
+                  </div>
+                  <p className="text-gray-500">Nenhuma notificação</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
