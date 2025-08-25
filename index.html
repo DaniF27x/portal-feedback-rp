@@ -286,56 +286,49 @@ export default function MetaXSystem() {
         .catch(error => console.log('SW erro:', error));
     }
     
-    // Add to home screen prompt
-    let deferredPrompt;
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      deferredPrompt = e;
+    // PWA Install - Versão que funciona sempre
+    setTimeout(() => {
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
       
-      // Show install button after 3 seconds
-      setTimeout(() => {
+      if (!isStandalone) {
         const installDiv = document.createElement('div');
         installDiv.innerHTML = `
-          <div style="position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#3b82f6;color:white;padding:12px 20px;border-radius:8px;z-index:9999;font-family:system-ui;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
-            📱 Instalar MetaX como app? 
-            <button onclick="this.parentElement.parentElement.remove();window.installMetaX()" style="background:white;color:#3b82f6;border:none;padding:4px 8px;border-radius:4px;margin-left:10px;cursor:pointer;">Instalar</button>
-            <button onclick="this.parentElement.parentElement.remove()" style="background:transparent;color:white;border:1px solid white;padding:4px 8px;border-radius:4px;margin-left:5px;cursor:pointer;">Agora não</button>
+          <div style="position:fixed;top:20px;right:20px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:white;padding:14px 18px;border-radius:10px;z-index:9999;font-family:system-ui;box-shadow:0 6px 20px rgba(59,130,246,0.4);max-width:300px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+              <span style="font-size:18px;">📱</span>
+              <strong style="font-size:14px;">Instalar MetaX como app</strong>
+            </div>
+            <div style="font-size:12px;opacity:0.9;margin-bottom:12px;">Acesso rápido e funciona offline</div>
+            <button onclick="this.parentElement.parentElement.remove();window.showInstallInstructions()" style="background:white;color:#3b82f6;border:none;padding:8px 16px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;width:100%;">
+              Como Instalar
+            </button>
           </div>
         `;
+        
         document.body.appendChild(installDiv);
         
-        window.installMetaX = async () => {
-          if (deferredPrompt) {
-            try {
-              await deferredPrompt.prompt();
-              const choiceResult = await deferredPrompt.userChoice;
-              
-              if (choiceResult.outcome === 'accepted') {
-                console.log('🎉 MetaX instalado com sucesso!');
-                // Mostrar confirmação
-                const successDiv = document.createElement('div');
-                successDiv.innerHTML = `
-                  <div style="position:fixed;top:20px;right:20px;background:#10b981;color:white;padding:12px 20px;border-radius:8px;z-index:9999;font-family:system-ui;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
-                    🎉 App instalado! Verifique sua tela inicial
-                  </div>
-                `;
-                document.body.appendChild(successDiv);
-                setTimeout(() => successDiv.remove(), 4000);
-              } else {
-                console.log('Instalação cancelada pelo usuário');
-              }
-              
-              deferredPrompt = null;
-            } catch (error) {
-              console.error('Erro na instalação PWA:', error);
-            }
-          } else {
-            console.log('PWA já instalado ou não suportado');
-            alert('App já instalado ou navegador não suporta instalação');
-          }
+        window.showInstallInstructions = () => {
+          const instructions = `Para instalar o MetaX como app:\n\n🤖 ANDROID/CHROME:\n• Menu (3 pontos) > "Instalar app"\n• Ou "Adicionar à tela inicial"\n\n🍎 iOS/SAFARI:\n• Botão Compartilhar 📤\n• "Adicionar à Tela Inicial"\n\n💻 DESKTOP:\n• Ícone na barra de endereço\n• Menu > "Instalar MetaX"`;
+          
+          alert(instructions);
+          
+          const confirmDiv = document.createElement('div');
+          confirmDiv.innerHTML = `
+            <div style="position:fixed;top:20px;right:20px;background:#10b981;color:white;padding:12px 16px;border-radius:8px;z-index:9999;font-family:system-ui;box-shadow:0 4px 12px rgba(16,185,129,0.4);">
+              ✅ Siga as instruções acima para instalar!
+            </div>
+          `;
+          document.body.appendChild(confirmDiv);
+          setTimeout(() => confirmDiv.remove(), 5000);
         };
-      }, 3000);
-    });
+        
+        setTimeout(() => {
+          if (document.body.contains(installDiv)) {
+            installDiv.remove();
+          }
+        }, 10000);
+      }
+    }, 4000);
   }, []);
   
   // Financial calculation functions
