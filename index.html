@@ -304,13 +304,34 @@ export default function MetaXSystem() {
         `;
         document.body.appendChild(installDiv);
         
-        window.installMetaX = () => {
+        window.installMetaX = async () => {
           if (deferredPrompt) {
-            deferredPrompt.prompt();
-            deferredPrompt.userChoice.then((choiceResult) => {
-              console.log('Install:', choiceResult.outcome);
+            try {
+              await deferredPrompt.prompt();
+              const choiceResult = await deferredPrompt.userChoice;
+              
+              if (choiceResult.outcome === 'accepted') {
+                console.log('🎉 MetaX instalado com sucesso!');
+                // Mostrar confirmação
+                const successDiv = document.createElement('div');
+                successDiv.innerHTML = `
+                  <div style="position:fixed;top:20px;right:20px;background:#10b981;color:white;padding:12px 20px;border-radius:8px;z-index:9999;font-family:system-ui;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+                    🎉 App instalado! Verifique sua tela inicial
+                  </div>
+                `;
+                document.body.appendChild(successDiv);
+                setTimeout(() => successDiv.remove(), 4000);
+              } else {
+                console.log('Instalação cancelada pelo usuário');
+              }
+              
               deferredPrompt = null;
-            });
+            } catch (error) {
+              console.error('Erro na instalação PWA:', error);
+            }
+          } else {
+            console.log('PWA já instalado ou não suportado');
+            alert('App já instalado ou navegador não suporta instalação');
           }
         };
       }, 3000);
