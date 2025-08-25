@@ -1,10 +1,16 @@
-// 🚀 DEPLOY: Copie este arquivo como index.html no Vercel
-// 🗃️ SUPABASE: Configure SUPABASE_URL e SUPABASE_ANON_KEY
-// 📱 PWA: Instalável automaticamente
+// 🚀 MetaX - Sistema Empresarial PWA para WhatsApp
+// 📱 DISTRIBUA PELO WHATSAPP: Link → Instala como app nativo
+// 🔄 UPDATES AUTOMÁTICOS: Botão verde quando houver nova versão
+// 🗃️ DADOS EM TEMPO REAL: Sincroniza entre todos os dispositivos
+// 🌐 FUNCIONA ONLINE: Dados seguros na nuvem (como WhatsApp Business)
 // 🔐 LOGIN: daniel / 5609984
 
 import React, { useState, useEffect } from 'react';
 import { BarChart3, Users, FileText, TrendingUp, Bell, Settings, Home, CheckCircle, XCircle, Clock, Eye, Plus, Filter } from 'lucide-react';
+
+// 📊 CONTROLE DE VERSÃO
+const APP_VERSION = '2.0.0';
+const UPDATE_CHECK_INTERVAL = 30 * 60 * 1000; // 30 minutos
 
 // 🚀 SUPABASE CONFIGURATION - COLE SUAS CREDENCIAIS AQUI
 const SUPABASE_CONFIG = {
