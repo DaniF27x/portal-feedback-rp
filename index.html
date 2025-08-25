@@ -6,12 +6,18 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart3, Users, FileText, TrendingUp, Bell, Settings, Home, CheckCircle, XCircle, Clock, Eye, Plus, Filter } from 'lucide-react';
 
-// 🚀 SUPABASE CONFIGURATION (Configure estas URLs para produção)
+// 🚀 SUPABASE CONFIGURATION - COLE SUAS CREDENCIAIS AQUI
 const SUPABASE_CONFIG = {
-  url: 'https://your-project.supabase.co',
-  anonKey: 'your-anon-key-here',
-  isConfigured: false // Mude para true quando configurar
+  url: 'https://SEU-PROJETO.supabase.co', // ← Cole sua URL aqui
+  anonKey: 'SUA-ANON-KEY-AQUI', // ← Cole sua anon key aqui  
+  isConfigured: false // ← Mude para TRUE após configurar
 };
+
+// 📋 INSTRUÇÕES:
+// 1. Substitua a URL e anon key acima
+// 2. Mude isConfigured para TRUE
+// 3. Salve o arquivo
+// 4. PRONTO! Sync em tempo real funcionando 🚀
 
 // Mock Supabase Client (será substituído pelo real quando configurado)
 const createSupabaseClient = (config) => {
